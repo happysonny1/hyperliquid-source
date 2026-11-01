@@ -1,0 +1,38 @@
+name: Reproduce LLVM dependency blocker
+on:
+  push:
+    branches: [validation/ci-llvm-dependency]
+permissions:
+  contents: read
+jobs:
+  before-after:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep gnupg git-lfs
+      - run: git -C references/can1357-hl lfs pull
+      - name: Reproduce both failures with the original bootstrap
+        shell: bash
+        run: |
+          set +e
+          python3 -B -m unittest discover -s tests -p test_short_string_alias.py -v > before-alias.log 2>&1
+          alias_status=$?
+          python3 -B -m unittest discover -s tests -p test_visor_rust_unwind.py -v > before-visor.log 2>&1
+          visor_status=$?
+          set -e
+          cat before-alias.log before-visor.log
+          test "$alias_status" -ne 0
+          test "$visor_status" -ne 0
+          grep -F "No such file or directory: 'llvm-objdump'" before-alias.log
+          grep -F "No such file or directory: 'llvm-objdump'" before-visor.log
+      - name: Apply the missing bootstrap dependency
+        run: sudo apt-get install -y llvm && llvm-objdump --version
+      - name: Run the unchanged tests after installing LLVM
+        run: |
+          python3 -B -m unittest discover -s tests -p test_short_string_alias.py -v
+          python3 -B -m unittest discover -s tests -p test_visor_rust_unwind.py -v
+      - name: Recheck authentic inputs and research consistency
+        run: make doctor verify catalogue-check reproduce
